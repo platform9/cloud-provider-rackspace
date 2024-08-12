@@ -20,6 +20,7 @@ limitations under the License.
 package main
 
 import (
+	"flag"
 	goflag "flag"
 	"fmt"
 	"math/rand"
@@ -43,24 +44,38 @@ import (
 )
 
 func checkCurrentLogLevel() {
-	// Check the current log level
-	for i := 0; i <= 10; i++ {
-		if klog.V(klog.Level(i)).Enabled() {
-			fmt.Printf("Log level %d is enabled\n", i)
-		} else {
-			fmt.Printf("Log level %d is not enabled\n", i)
+	flag.VisitAll(func(f *flag.Flag) {
+		if f.Name == "v" {
+			fmt.Printf("Current log level: %s\n", f.Value)
 		}
-	}
-
+	})
 }
 
 func main() {
 	rand.Seed(time.Now().UnixNano())
 
+	// Initialize klog
 	klog.InitFlags(nil)
 	defer klog.Flush()
-	// Set a default verbosity level if not provided (e.g., -v=2)
-	_ = goflag.Set("v", "4")
+
+	// Register the custom flags explicitly
+	pflag.String("cloud-config", "", "Path to the cloud provider configuration file")
+	pflag.String("cluster-name", "", "The name of the Kubernetes cluster")
+	pflag.Bool("use-service-account-credentials", true, "Use service account credentials")
+	pflag.String("bind-address", "127.0.0.1", "The address to bind to")
+	pflag.String("cloud-provider", "openstack", "The cloud provider name")
+	pflag.String("kubeconfig", "", "Path to the kubeconfig file")
+	pflag.String("authentication-kubeconfig", "", "Path to the authentication kubeconfig file")
+
+	// Integrate goflag with pflag
+	pflag.CommandLine.AddGoFlagSet(goflag.CommandLine)
+	pflag.Parse()
+
+	// Parse the combined flags
+	if err := goflag.CommandLine.Parse([]string{}); err != nil {
+		fmt.Fprintf(os.Stderr, "error parsing flags: %v\n", err)
+		os.Exit(1)
+	}
 
 	checkCurrentLogLevel()
 
@@ -68,21 +83,16 @@ func main() {
 	if err != nil {
 		klog.Fatalf("unable to initialize command options: %v", err)
 	}
-	fmt.Printf("CCMPTIONS - +%v \n", ccmOptions)
 
 	fss := cliflag.NamedFlagSets{}
 	command := app.NewCloudControllerManagerCommand(ccmOptions, cloudInitializer, app.DefaultInitFuncConstructors, fss, wait.NeverStop)
 
+	// Ensure flags from the openstack package are added
 	openstack.AddExtraFlags(pflag.CommandLine)
 
-	// TODO: once we switch everything over to Cobra commands, we can go back to calling
-	// utilflag.InitFlags() (by removing its pflag.Parse() call). For now, we have to set the
-	// normalize func and add the go flag set by hand.
-	// Here is an sample
+	// Normalize and add the goflag set
 	pflag.CommandLine.SetNormalizeFunc(cliflag.WordSepNormalizeFunc)
 	pflag.CommandLine.AddGoFlagSet(goflag.CommandLine)
-
-	// utilflag.InitFlags()
 
 	klog.V(1).Infof("openstack-cloud-controller-manager version: %s", version.Version)
 
