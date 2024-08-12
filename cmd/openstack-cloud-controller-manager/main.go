@@ -33,7 +33,6 @@ import (
 	"k8s.io/cloud-provider/app/config"
 	"k8s.io/cloud-provider/options"
 	cliflag "k8s.io/component-base/cli/flag"
-	"k8s.io/component-base/logs"
 	_ "k8s.io/component-base/metrics/prometheus/restclient" // for client metric registration
 	_ "k8s.io/component-base/metrics/prometheus/version"    // for version metric registration
 	"k8s.io/klog/v2"
@@ -43,13 +42,33 @@ import (
 	"github.com/os-pc/cloud-provider-rackspace/pkg/version"
 )
 
+func checkCurrentLogLevel() {
+	// Check the current log level
+	for i := 0; i <= 10; i++ {
+		if klog.V(klog.Level(i)).Enabled() {
+			fmt.Printf("Log level %d is enabled\n", i)
+		} else {
+			fmt.Printf("Log level %d is not enabled\n", i)
+		}
+	}
+
+}
+
 func main() {
 	rand.Seed(time.Now().UnixNano())
+
+	klog.InitFlags(nil)
+	defer klog.Flush()
+	// Set a default verbosity level if not provided (e.g., -v=2)
+	_ = goflag.Set("v", "4")
+
+	checkCurrentLogLevel()
 
 	ccmOptions, err := options.NewCloudControllerManagerOptions()
 	if err != nil {
 		klog.Fatalf("unable to initialize command options: %v", err)
 	}
+	fmt.Printf("CCMPTIONS - +%v \n", ccmOptions)
 
 	fss := cliflag.NamedFlagSets{}
 	command := app.NewCloudControllerManagerCommand(ccmOptions, cloudInitializer, app.DefaultInitFuncConstructors, fss, wait.NeverStop)
@@ -64,8 +83,6 @@ func main() {
 	pflag.CommandLine.AddGoFlagSet(goflag.CommandLine)
 
 	// utilflag.InitFlags()
-	logs.InitLogs()
-	defer logs.FlushLogs()
 
 	klog.V(1).Infof("openstack-cloud-controller-manager version: %s", version.Version)
 
