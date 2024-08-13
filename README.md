@@ -45,6 +45,16 @@ the 5th version built against Kubernetes 1.20 APIs.
 This controller is developed and tested against Rackspace OpenStack Public Cloud using Go 1.16.
 Pull requests are welcome.
 
+## How to run locally. 
+
+1. In order to test your changes you will need a cloudspace. If you dont have a cloudspace then create one.
+2. Obtain the kubeconfig for your cloudspace. We will later use this to create a Kubernetes sresource for our testing.
+3. Identity namespace for your KDU on staging cluster. 
+4. Identify the cloud-provider deployment which is responsible for your cloudspace in the namespace obtained from step-3.
+5. Scale down the cloud-provider deployment for your cloudspace to zero.
+6. Update the makefile target - ``` run-local ``` with required details and then run - ``` make run-local ```. This will run cloud-provider in local while pointing to the API server of your cloudspace.
+7. Open up another terminal and create required resources to test your changes.
+
 ## License
 
 Licensed under the Apache License, Version 2.0 (the "License");
