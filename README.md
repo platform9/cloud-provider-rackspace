@@ -47,8 +47,8 @@ Pull requests are welcome.
 
 ## How to run locally. 
 
-1. In order to test your changes you will need a cloudspace. If you dont have a cloudspace then create one.
-2. Obtain the kubeconfig for your cloudspace. We will later use this to create a Kubernetes sresource for our testing.
+1. In order to test your changes you will need a cloudspace. If you don't have a cloudspace then create one.
+2. Obtain the kubeconfig for your cloudspace. We will later use this to create a Kubernetes resource for our testing.
 3. Identity namespace for your KDU on staging cluster. 
 4. Identify the cloud-provider deployment which is responsible for your cloudspace in the namespace obtained from step-3.
 5. Scale down the cloud-provider deployment for your cloudspace to zero.
