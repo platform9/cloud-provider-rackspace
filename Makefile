@@ -33,13 +33,3 @@ image: build
 	docker build -t $(REGISTRY)/$(TARGET):${VERSION} .
 push: image
 	docker push $(REGISTRY)/$(TARGET):${VERSION}
-
-run-local: build
-	./$(TARGET) --cloud-config=<path to cloud.conf> \
-	    --v=<log_level> \
-		--cluster-name=<cluster_name> \
-		--use-service-account-credentials=true \
-		--bind-address=127.0.0.1 \
-		--cloud-provider=openstack \
-		--kubeconfig=<path-to-kubeconfig> \
-		--authentication-kubeconfig=<path-to-kubeconfig>

@@ -46,7 +46,8 @@ import (
 func checkCurrentLogLevel() {
 	flag.VisitAll(func(f *flag.Flag) {
 		if f.Name == "v" {
-			fmt.Printf("Current log level: %s\n", f.Value)
+			klog.Infof("Current log level: %s\n", f.Value)
+
 		}
 	})
 }
@@ -76,17 +77,13 @@ func main() {
 		fmt.Fprintf(os.Stderr, "error parsing flags: %v\n", err)
 		os.Exit(1)
 	}
-
 	checkCurrentLogLevel()
-
 	ccmOptions, err := options.NewCloudControllerManagerOptions()
 	if err != nil {
 		klog.Fatalf("unable to initialize command options: %v", err)
 	}
-
 	fss := cliflag.NamedFlagSets{}
 	command := app.NewCloudControllerManagerCommand(ccmOptions, cloudInitializer, app.DefaultInitFuncConstructors, fss, wait.NeverStop)
-
 	// Ensure flags from the openstack package are added
 	openstack.AddExtraFlags(pflag.CommandLine)
 
@@ -104,7 +101,6 @@ func main() {
 
 func cloudInitializer(config *config.CompletedConfig) cloudprovider.Interface {
 	cloudConfig := config.ComponentConfig.KubeCloudShared.CloudProvider
-
 	// initialize cloud provider with the cloud provider name and config file provided
 	cloud, err := cloudprovider.InitCloudProvider(cloudConfig.Name, cloudConfig.CloudConfigFile)
 	if err != nil {

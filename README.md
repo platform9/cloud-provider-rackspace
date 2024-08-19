@@ -47,13 +47,16 @@ Pull requests are welcome.
 
 ## How to run locally. 
 
-1. In order to test your changes you will need a cloudspace. If you don't have a cloudspace then create one.
-2. Obtain the kubeconfig for your cloudspace. We will later use this to create a Kubernetes resource for our testing.
-3. Identity namespace for your KDU on staging cluster. 
-4. Identify the cloud-provider deployment which is responsible for your cloudspace in the namespace obtained from step-3.
-5. Scale down the cloud-provider deployment for your cloudspace to zero.
-6. Update the makefile target - ``` run-local ``` with required details and then run - ``` make run-local ```. This will run cloud-provider in local while pointing to the API server of your cloudspace.
-7. Open up another terminal and create required resources to test your changes.
+1. In order to test your changes you will need a kubernetes cluster. If you don't have a kubernetes cluster then create one.
+2. Obtain the kubeconfig for your kubernetes cluster. We will later use this to create a Kubernetes resource for our testing.
+5. Scale down the cloud-provider deployment for your kubernetes cluster to zero.
+6. Set following environment variables CLOUD_CONFIG, KUBECONFIG , AUTHENTICATION_KUBECONFIG, CLUSTER_NAME to appropriate values. 
+    * CLOUD_CONFIG - location where cloud.conf file is stored.
+    * KUBECONFIG , AUTHENTICATION_KUBECONFIG -  Where the kubeconfig of your VCP for your cloudspace.
+    * CLUSTER_NAME - your VCP name
+
+7. Run ``` bash run.sh ```.  This will run cloud-provider in local while pointing to the API server of your kubernetes cluster.
+8. Open up another terminal and create required resources in your kubernetes cluster to test your changes.
 
 ## License
 
