@@ -20,11 +20,13 @@ package openstack
 import (
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/gophercloud/gophercloud"
 	"github.com/gophercloud/gophercloud/openstack/loadbalancer/v2/apiversions"
 	"github.com/gophercloud/gophercloud/openstack/loadbalancer/v2/listeners"
+	loadbalancerv2 "github.com/gophercloud/gophercloud/openstack/loadbalancer/v2/loadbalancers"
 	"github.com/gophercloud/gophercloud/openstack/loadbalancer/v2/pools"
 	"github.com/gophercloud/gophercloud/pagination"
 	version "github.com/hashicorp/go-version"
@@ -65,7 +67,7 @@ func getOctaviaVersion(client *gophercloud.ServiceClient) (string, error) {
 		return octaviaVersion, nil
 	}
 
-	var defaultVer = "0.0"
+	defaultVer := "0.0"
 	allPages, err := apiversions.List(client).AllPages()
 	if err != nil {
 		return defaultVer, err
@@ -134,7 +136,6 @@ func waitLoadbalancerActive(client *gophercloud.ServiceClient, loadbalancerID ui
 		} else {
 			return false, nil
 		}
-
 	})
 
 	return err
@@ -169,15 +170,52 @@ func CreateListener(client *gophercloud.ServiceClient, lbID uint64, opts listene
 
 // GetLoadbalancerByName get the load balancer which is in valid status by the given name.
 func GetLoadBalancersByName(client *gophercloud.ServiceClient, name string) ([]loadbalancers.LoadBalancer, error) {
-	var validLBs []loadbalancers.LoadBalancer
+	var allLoadbalancers, validLBs []loadbalancers.LoadBalancer
+	var listOpts loadbalancerv2.ListOpts
+	var oldMarker string
 
-	allPages, err := loadbalancers.List(client, loadbalancers.ListOpts{}).AllPages()
-	if err != nil {
-		return nil, err
-	}
-	allLoadbalancers, err := loadbalancers.ExtractLoadBalancers(allPages)
-	if err != nil {
-		return nil, err
+	// Query all the LBs by using the markers.
+	// Set last LB ID as marker.
+	for {
+		var tempLbs []loadbalancers.LoadBalancer
+		var err error
+
+		err = loadbalancers.List(client, listOpts).EachPage(func(page pagination.Page) (bool, error) {
+			tempLbs, err = loadbalancers.ExtractLoadBalancers(page)
+			if err != nil {
+				return false, err
+			}
+
+			return false, nil
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		if len(tempLbs) > 0 {
+			marker := strconv.FormatUint(tempLbs[len(tempLbs)-1].ID, 10)
+			if marker == oldMarker {
+				break
+			}
+
+			// First time in the loop add all the LBs (or) if oldMarker is not
+			// same as the first LB ID in newly retrieved LBs then no need to
+			// remove it.
+			// Else check if oldMarker is same as the first LB ID in newly retrieved LBs then
+			// we can remove it.
+			tempId := strconv.FormatUint(tempLbs[0].ID, 10)
+			if oldMarker == "" || (oldMarker != "" && oldMarker != tempId) {
+				allLoadbalancers = append(allLoadbalancers, tempLbs...)
+			} else if oldMarker != "" && oldMarker == tempId {
+				allLoadbalancers = append(allLoadbalancers, tempLbs[1:]...)
+			}
+
+			// Set the oldMarker with new marker & also update the marker with new marker for querying.
+			oldMarker = marker
+			listOpts.Marker = marker
+		} else {
+			break
+		}
 	}
 
 	for _, lb := range allLoadbalancers {
