@@ -180,8 +180,8 @@ func GetLoadBalancersByName(client *gophercloud.ServiceClient, name string) ([]l
 		var tempLbs []loadbalancers.LoadBalancer
 		var err error
 
-		err = loadbalancers.List(client, listOpts).EachPage(func(page pagination.Page) (bool, error) {
-			tempLbs, err = loadbalancers.ExtractLoadBalancers(page)
+		err = loadbalancers.List(client, listOpts).EachPage(func(LbsInCurrentPage pagination.Page) (bool, error) {
+			tempLbs, err = loadbalancers.ExtractLoadBalancers(LbsInCurrentPage)
 			if err != nil {
 				return false, err
 			}
@@ -192,29 +192,29 @@ func GetLoadBalancersByName(client *gophercloud.ServiceClient, name string) ([]l
 			return nil, err
 		}
 
-		if len(tempLbs) > 0 {
+		if len(tempLbs) == 0 {
+			break
+		} else {
 			marker := strconv.FormatUint(tempLbs[len(tempLbs)-1].ID, 10)
 			if marker == oldMarker {
 				break
 			}
 
-			// First time in the loop add all the LBs (or) if oldMarker is not
-			// same as the first LB ID in newly retrieved LBs then no need to
-			// remove it.
-			// Else check if oldMarker is same as the first LB ID in newly retrieved LBs then
-			// we can remove it.
-			tempId := strconv.FormatUint(tempLbs[0].ID, 10)
-			if oldMarker == "" || (oldMarker != "" && oldMarker != tempId) {
-				allLoadbalancers = append(allLoadbalancers, tempLbs...)
-			} else if oldMarker != "" && oldMarker == tempId {
-				allLoadbalancers = append(allLoadbalancers, tempLbs[1:]...)
+			// On the first loop iteration, add all the LBs. Alternatively, if the oldMarker differs
+			// from the first LB ID in the newly retrieved LBs, there's no need to remove it.
+			// However, if the oldMarker matches the first LB ID in the newly retrieved LBs, it can be removed.
+			// Determine the starting index for appending load balancers.
+			startIndex := 0
+			if oldMarker != "" && oldMarker == strconv.FormatUint(tempLbs[0].ID, 10) {
+				startIndex = 1
 			}
+
+			// Append the load balancers from the determined start index
+			allLoadbalancers = append(allLoadbalancers, tempLbs[startIndex:]...)
 
 			// Set the oldMarker with new marker & also update the marker with new marker for querying.
 			oldMarker = marker
 			listOpts.Marker = marker
-		} else {
-			break
 		}
 	}
 
