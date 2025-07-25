@@ -21,7 +21,6 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gophercloud/gophercloud"
@@ -218,7 +217,6 @@ func toLBProtocol(protocol corev1.Protocol) string {
 }
 
 func createLBCreateVips(service *corev1.Service) ([]virtualips.CreateOpts, error) {
-	// internalAnnotation, err := getBoolFromServiceAnnotation(apiService, ServiceAnnotationLoadBalancerInternal, false)
 	internalAnnotation := false
 	var lbType string
 	switch internalAnnotation {
@@ -666,6 +664,39 @@ func (lbaas *CloudLb) EnsureLoadBalancer(ctx context.Context, clusterName string
 	return status, nil
 }
 
+func IsAccessListModified(currentAccessLists []accesslists.NetworkItem, newAccessLists []accesslists.CreateOpts) bool {
+	klog.V(2).Infof("Checking if access lists are modified, current: %+v, new: %+v", currentAccessLists, newAccessLists)
+	// Check if the current access lists are different from the new access lists
+	if len(currentAccessLists) != len(newAccessLists) {
+		return true
+	}
+
+	// Check if the addresses in the current access lists are different from the new access lists
+	newAccessListsSlices := make([]string, 0, len(newAccessLists))
+	for _, networkItem := range newAccessLists {
+		newAccessListsSlices = append(newAccessListsSlices, networkItem.Address)
+	}
+	for _, networkItem := range currentAccessLists {
+		if !slices.Contains(newAccessListsSlices, networkItem.Address) {
+			return true
+		}
+	}
+
+	// Check if the addresses in the new access lists are different from the current access lists
+	currentAccessListSlice := make([]string, 0, len(currentAccessLists))
+	for _, networkItem := range currentAccessLists {
+		currentAccessListSlice = append(currentAccessListSlice, networkItem.Address)
+	}
+
+	for _, networkItem := range newAccessListsSlices {
+		if !slices.Contains(currentAccessListSlice, networkItem) {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (lbaas *CloudLb) ensureLoadBalancerAccesslists(lbID uint64, sourceRangesCIDRs []accesslists.CreateOpts, serviceName string) error {
 	// Get the current access lists for the load balancer
 	accessLists, err := accesslists.Get(lbaas.lb, lbID).Extract()
@@ -674,87 +705,30 @@ func (lbaas *CloudLb) ensureLoadBalancerAccesslists(lbID uint64, sourceRangesCID
 	}
 	klog.V(2).Infof("Current access lists for load balancer %d: %v", lbID, accessLists)
 
-	sourceRangesCIDRSlices := []string{}
-	for _, sourceRange := range sourceRangesCIDRs {
-		sourceRangesCIDRSlices = append(sourceRangesCIDRSlices, sourceRange.Address)
-	}
-
-	// If the source ranges CIDRs are empty, we will delete all access lists
-	// i.e. if the source ranges CIDRs are equal to the default value
-	// v1service.DefaultLoadBalancerSourceRanges, we will delete all access lists.
-	// This is to ensure that if the source ranges CIDRs are not set, we do
-	// not leave any access lists that might have been set previously.
-	if len(sourceRangesCIDRSlices) == 1 && sourceRangesCIDRSlices[0] == v1service.DefaultLoadBalancerSourceRanges {
-		klog.V(2).Infof("No source ranges CIDRs for Service %s, skipping access lists update & deleting anything if exists", serviceName)
-		err := accesslists.DeleteAll(lbaas.lb, lbID).ExtractErr()
-		if err != nil && !cpoerrors.IsNotFound(err) {
-			return fmt.Errorf("error deleting access lists for load balancer %d: %v", lbID, err)
-		}
-	} else {
-		// If the source ranges CIDRs are not empty, we will update the access lists
-		// to match the source ranges CIDRs.
-		// We will remove any access lists that are not in the source ranges CIDRs
-		// and add any access lists that are in the source ranges CIDRs but not in
-		// the access lists.
-		klog.V(2).Infof("Updating access lists for load balancer %d", lbID)
-		toRemove := []uint64{}
-		for _, networkItem := range accessLists {
-			if !slices.Contains(sourceRangesCIDRSlices, networkItem.Address) {
-				toRemove = append(toRemove, networkItem.ID)
-			}
-		}
-		klog.V(2).Infof("Access lists to remove from load balancer %d: %v", lbID, toRemove)
-		// delete the access lists that are not needed anymore
-		if len(toRemove) > 0 {
-			totalBatch := (len(toRemove) / DefaultBatch) + 1
-			for i := 0; i < totalBatch; i++ {
-				start := i * DefaultBatch
-				end := start + DefaultBatch
-				if end > len(toRemove) {
-					end = len(toRemove)
-				}
-				if start >= len(toRemove) {
-					break
-				}
-				urlQuery := "?"
-				for _, item := range toRemove[start:end] {
-					urlQuery += fmt.Sprintf("id=%d&", item)
-				}
-				urlQuery = strings.TrimSuffix(urlQuery, "&")
-				klog.V(2).Infof("Removing access lists %v from load balancer %d", toRemove, lbID)
-				err := accesslists.BulkDelete(lbaas.lb, lbID, urlQuery).ExtractErr()
-				if err != nil && !cpoerrors.IsNotFound(err) {
-					return fmt.Errorf("error deleting access lists for load balancer %d: %v", lbID, err)
-				}
-			}
-		}
-		// add the access lists that are not there yet
-		accessListSlice := make([]string, 0, len(sourceRangesCIDRSlices))
-		for _, networkItem := range accessLists {
-			accessListSlice = append(accessListSlice, networkItem.Address)
-		}
-
-		toAdd := []accesslists.CreateOpts{}
-		for _, networkItem := range sourceRangesCIDRs {
-			if !slices.Contains(accessListSlice, networkItem.Address) {
-				toAdd = append(toAdd, networkItem)
-			}
-		}
-
-		// If the default load balancer source ranges is not in the source ranges CIDRs,
-		// we will add it as a deny rule to the access lists.
-		if !slices.Contains(sourceRangesCIDRSlices, v1service.DefaultLoadBalancerSourceRanges) && !slices.Contains(accessListSlice, v1service.DefaultLoadBalancerSourceRanges) {
-			toAdd = append(toAdd, accesslists.CreateOpts{Address: v1service.DefaultLoadBalancerSourceRanges, Type: accesslists.Deny})
-		}
-
-		// If there are any access lists to add, we will add them to the load balancer
-		if len(toAdd) > 0 {
-			klog.V(2).Infof("Adding access lists %v to load balancer %d", toAdd, lbID)
-			err = accesslists.Create(lbaas.lb, lbID, toAdd).ExtractErr()
+	if IsAccessListModified(accessLists, sourceRangesCIDRs) {
+		// We don't need to delete the access lists if there is nothing to update
+		// so that we can avoid the error as this won't allow the below POST to succeed:
+		// {"code":422,"message":"Load Balancer '<lb-id>' has a status of 'PENDING_UPDATE' and is considered immutable."}
+		if len(accessLists) != 0 {
+			klog.V(2).Infof("Access lists for load balancer %d are modified, updating access lists", lbID)
+			err := accesslists.DeleteAll(lbaas.lb, lbID).ExtractErr()
 			if err != nil && !cpoerrors.IsNotFound(err) {
-				return fmt.Errorf("error adding access lists for load balancer %d: %v", lbID, err)
+				return fmt.Errorf("error deleting access lists for load balancer %d: %v", lbID, err)
 			}
 		}
+
+		// If the source ranges CIDRs are empty, we will not update the access lists
+		if len(sourceRangesCIDRs) == 0 {
+			klog.V(2).Infof("No source ranges CIDRs for Service %s, skipping access lists update & deleting anything if exists", serviceName)
+			return nil
+		}
+
+		klog.V(2).Infof("Adding access lists %v to load balancer %d", sourceRangesCIDRs, lbID)
+		err = accesslists.Create(lbaas.lb, lbID, sourceRangesCIDRs).ExtractErr()
+		if err != nil && !cpoerrors.IsNotFound(err) {
+			return fmt.Errorf("error adding access lists for load balancer %d: %v", lbID, err)
+		}
+
 	}
 
 	return nil
