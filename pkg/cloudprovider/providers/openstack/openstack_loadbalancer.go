@@ -30,7 +30,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/klog/v2"
-	"k8s.io/utils/strings/slices"
 
 	v1service "github.com/os-pc/cloud-provider-rackspace/pkg/api/v1/service"
 	cpoerrors "github.com/os-pc/cloud-provider-rackspace/pkg/util/errors"
@@ -672,24 +671,25 @@ func IsAccessListModified(currentAccessLists []accesslists.NetworkItem, newAcces
 	}
 
 	// Check if the addresses in the current access lists are different from the new access lists
-	newAccessListsSlices := make([]string, 0, len(newAccessLists))
+	accessListMap := make(map[string]struct{}, len(newAccessLists))
 	for _, networkItem := range newAccessLists {
-		newAccessListsSlices = append(newAccessListsSlices, networkItem.Address)
+		accessListMap[networkItem.Address] = struct{}{}
 	}
+
 	for _, networkItem := range currentAccessLists {
-		if !slices.Contains(newAccessListsSlices, networkItem.Address) {
+		if _, found := accessListMap[networkItem.Address]; !found {
 			return true
 		}
 	}
 
 	// Check if the addresses in the new access lists are different from the current access lists
-	currentAccessListSlice := make([]string, 0, len(currentAccessLists))
+	activeAccessListMap := make(map[string]struct{}, len(currentAccessLists))
 	for _, networkItem := range currentAccessLists {
-		currentAccessListSlice = append(currentAccessListSlice, networkItem.Address)
+		activeAccessListMap[networkItem.Address] = struct{}{}
 	}
 
-	for _, networkItem := range newAccessListsSlices {
-		if !slices.Contains(currentAccessListSlice, networkItem) {
+	for _, networkItem := range newAccessLists {
+		if _, found := activeAccessListMap[networkItem.Address]; !found {
 			return true
 		}
 	}
