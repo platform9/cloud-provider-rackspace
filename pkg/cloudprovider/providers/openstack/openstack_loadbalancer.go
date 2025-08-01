@@ -206,7 +206,12 @@ func waitLoadbalancerDeleted(client *gophercloud.ServiceClient, loadbalancerID u
 	return err
 }
 
-func toLBProtocol(protocol corev1.Protocol) string {
+func toLBProtocol(protocol corev1.Protocol, keepClientIP bool) string {
+	if keepClientIP {
+		klog.V(4).Infof("Forcing to use 'HTTP' protocol for listener because %s annotation is set", ServiceAnnotationLoadBalancerXForwardedFor)
+		return "HTTP"
+	}
+
 	switch protocol {
 	case corev1.ProtocolTCP:
 		return "TCP_CLIENT_FIRST"
@@ -244,16 +249,11 @@ func cloneLBCreateVips(lb *loadbalancers.LoadBalancer) []virtualips.CreateOpts {
 func (lbaas *CloudLb) createLoadBalancer(name string, vips []virtualips.CreateOpts, port corev1.ServicePort, keepClientIP bool, accessLists []accesslists.CreateOpts) (*loadbalancers.LoadBalancer, error) {
 	createOpts := loadbalancers.CreateOpts{
 		Name:       name,
-		Protocol:   toLBProtocol(port.Protocol),
+		Protocol:   toLBProtocol(port.Protocol, keepClientIP),
 		Port:       port.Port,
 		VirtualIps: vips,
 		Nodes:      []lbnodes.CreateOpts{},
 		AccessList: accessLists,
-	}
-
-	if keepClientIP {
-		klog.V(4).Infof("Forcing to use 'HTTP' protocol for listener because %s annotation is set", ServiceAnnotationLoadBalancerXForwardedFor)
-		createOpts.Protocol = "HTTP"
 	}
 
 	loadbalancer, err := loadbalancers.Create(lbaas.lb, createOpts).Extract()
@@ -599,6 +599,14 @@ func (lbaas *CloudLb) EnsureLoadBalancer(ctx context.Context, clusterName string
 			if err != nil {
 				return nil, fmt.Errorf("error ensuring access lists for load balancer %d: %v", loadbalancer.ID, err)
 			}
+			// If the load balancer already exists, we need to update its protocol if required.
+			newLbProtocol := toLBProtocol(port.Protocol, keepClientIP)
+			if loadbalancer.Protocol != newLbProtocol {
+				err = lbaas.UpdateLBProtocol(loadbalancer.ID, newLbProtocol)
+				if err != nil {
+					return nil, fmt.Errorf("error updating load balancer protocol for port %d: %v", loadbalancer.ID, err)
+				}
+			}
 			lbs = popLB(lbs, loadbalancer)
 		}
 
@@ -731,6 +739,19 @@ func (lbaas *CloudLb) ensureLoadBalancerAccesslists(lbID uint64, sourceRangesCID
 
 	}
 
+	return nil
+}
+
+func (lbaas *CloudLb) UpdateLBProtocol(lbID uint64, protocol string) error {
+	updateOpts := loadbalancers.UpdateOpts{
+		Protocol: protocol,
+	}
+
+	klog.V(2).Infof("updating loadbalancer protocol of %d to %s", protocol, lbID)
+	err := loadbalancers.Update(lbaas.lb, lbID, updateOpts).ExtractErr()
+	if err != nil {
+		return fmt.Errorf("error updating loadbalancer protocol %s for loadbalancer %d: %v", protocol, lbID, err)
+	}
 	return nil
 }
 
