@@ -208,7 +208,7 @@ func waitLoadbalancerDeleted(client *gophercloud.ServiceClient, loadbalancerID u
 
 func toLBProtocol(protocol corev1.Protocol, keepClientIP bool) string {
 	if keepClientIP {
-		klog.V(4).Infof("Forcing to use 'HTTP' protocol for listener because %s annotation is set", ServiceAnnotationLoadBalancerXForwardedFor)
+		klog.V(2).Infof("Forcing to use 'HTTP' protocol for listener because %s annotation is set", ServiceAnnotationLoadBalancerXForwardedFor)
 		return "HTTP"
 	}
 
@@ -602,7 +602,7 @@ func (lbaas *CloudLb) EnsureLoadBalancer(ctx context.Context, clusterName string
 			// If the load balancer already exists, we need to update its protocol if required.
 			newLbProtocol := toLBProtocol(port.Protocol, keepClientIP)
 			if loadbalancer.Protocol != newLbProtocol {
-				err = lbaas.UpdateLBProtocol(loadbalancer.ID, newLbProtocol)
+				err = lbaas.UpdateLBProtocol(loadbalancer, newLbProtocol)
 				if err != nil {
 					return nil, fmt.Errorf("error updating load balancer protocol for port %d: %v", loadbalancer.ID, err)
 				}
@@ -742,15 +742,19 @@ func (lbaas *CloudLb) ensureLoadBalancerAccesslists(lbID uint64, sourceRangesCID
 	return nil
 }
 
-func (lbaas *CloudLb) UpdateLBProtocol(lbID uint64, protocol string) error {
+func (lbaas *CloudLb) UpdateLBProtocol(lb *loadbalancers.LoadBalancer, protocol string) error {
 	updateOpts := loadbalancers.UpdateOpts{
-		Protocol: protocol,
+		Name:      lb.Name,
+		Protocol:  protocol,
+		Port:      lb.Port,
+		Algorithm: lb.Algorithm,
+		Timeout:   lb.Timeout,
 	}
 
-	klog.V(2).Infof("updating loadbalancer protocol of %d to %s", protocol, lbID)
-	err := loadbalancers.Update(lbaas.lb, lbID, updateOpts).ExtractErr()
+	klog.V(2).Infof("updating loadbalancer protocol to '%s' for loadbalancer %d of port %d", protocol, lb.ID, lb.Port)
+	err := loadbalancers.Update(lbaas.lb, lb.ID, updateOpts).ExtractErr()
 	if err != nil {
-		return fmt.Errorf("error updating loadbalancer protocol %s for loadbalancer %d: %v", protocol, lbID, err)
+		return fmt.Errorf("error updating loadbalancer protocol '%s' for loadbalancer %d: %v", protocol, lb.ID, err)
 	}
 	return nil
 }
